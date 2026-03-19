@@ -2,7 +2,7 @@
 -- HUD SYSTEM: Config Hash & Mod Mark
 -- =============================================================================
 -- Manages the modpack hash display on the HUD.
--- Reads module states from their individual configs via Discovery.
+-- Reads module states from Discovery or from a staging table when provided.
 
 local Discovery = Core.Discovery
 local lib = rom.mods['adamant-Modpack_Lib']
@@ -97,33 +97,15 @@ local function GetConfigHash(source)
     -- Inline option payloads (in discovery order, only modules with options)
     for _, m in ipairs(Discovery.modulesWithOptions) do
         for _, opt in ipairs(m.options) do
-            if opt.type == "checkbox" then
-                local current
-                if source then
-                    current = source.options and source.options[m.id]
-                        and source.options[m.id][opt.configKey]
-                end
-                if current == nil then
-                    current = Discovery.getOptionValue(m, opt.configKey)
-                end
-                addBits(current and 1 or 0, 1)
-            elseif opt.type == "dropdown" or opt.type == "radio" then
-                local bits = opt.bits or lib.bitsRequired(#opt.values)
-                local current
-                if source then
-                    current = source.options and source.options[m.id]
-                        and source.options[m.id][opt.configKey]
-                end
-                if current == nil then
-                    current = Discovery.getOptionValue(m, opt.configKey)
-                end
-                current = current or opt.default or ""
-                local idx = 0
-                for i, v in ipairs(opt.values) do
-                    if v == current then idx = i - 1; break end
-                end
-                addBits(idx, bits)
+            local current
+            if source then
+                current = source.options and source.options[m.id]
+                    and source.options[m.id][opt.configKey]
             end
+            if current == nil then
+                current = Discovery.getOptionValue(m, opt.configKey)
+            end
+            lib.encodeField(opt, current, addBits)
         end
     end
 
@@ -133,37 +115,8 @@ local function GetConfigHash(source)
         if schema then
             local cfg = special.mod.config
             for _, field in ipairs(schema) do
-                local bits = lib.resolveBits(field)
-                local key = field.configKey
-                local current
-                if type(key) == "table" then
-                    local tbl = cfg
-                    for i = 1, #key - 1 do
-                        tbl = tbl[key[i]]
-                        if not tbl then
-                            Core.warn("stateSchema: config path missing at '" .. key[i] .. "' in " .. special.modName)
-                            break
-                        end
-                    end
-                    current = tbl and tbl[key[#key]]
-                else
-                    current = cfg[key]
-                end
-                if field.type == "checkbox" then
-                    addBits(current and 1 or 0, 1)
-                elseif field.type == "dropdown" or field.type == "radio" then
-                    if not field.values then
-                        Core.warn("stateSchema: dropdown/radio missing values for '" .. tostring(field.configKey) .. "' in " .. special.modName)
-                    end
-                    current = current or field.default or ""
-                    local idx = 0
-                    for i, v in ipairs(field.values or {}) do
-                        if v == current then idx = i - 1; break end
-                    end
-                    addBits(idx, bits)
-                else
-                    Core.warn("stateSchema: unknown type '" .. tostring(field.type) .. "' in " .. special.modName)
-                end
+                local current = lib.readPath(cfg, field.configKey)
+                lib.encodeField(field, current, addBits)
             end
         end
     end
@@ -176,15 +129,24 @@ end
 --- @param hash string The hash to decode
 --- @return boolean success
 local function ApplyConfigHash(hash)
-    if not hash or hash == "" then return false end
+    if not hash or hash == "" then
+        lib.warn("ApplyConfigHash: empty or nil hash")
+        return false
+    end
 
     local chunksList = {}
     for part in string.gmatch(hash, "[^%.]+") do
         local decoded = DecodeBase62(part)
-        if not decoded then return false end
+        if not decoded then
+            lib.warn("ApplyConfigHash: invalid base62 chunk '" .. part .. "'")
+            return false
+        end
         table.insert(chunksList, decoded)
     end
-    if #chunksList == 0 then return false end
+    if #chunksList == 0 then
+        lib.warn("ApplyConfigHash: no chunks decoded")
+        return false
+    end
 
     local chunkIdx = 1
     local chunkVal = chunksList[1]
@@ -228,14 +190,9 @@ local function ApplyConfigHash(hash)
     if chunkIdx <= #chunksList then
         for _, m in ipairs(Discovery.modulesWithOptions) do
             for _, opt in ipairs(m.options) do
-                if opt.type == "checkbox" then
-                    Discovery.setOptionValue(m, opt.configKey, readBits(1) == 1)
-                elseif opt.type == "dropdown" or opt.type == "radio" then
-                    local bits = opt.bits or lib.bitsRequired(#opt.values)
-                    local idx = readBits(bits)
-                    if idx < #opt.values then
-                        Discovery.setOptionValue(m, opt.configKey, opt.values[idx + 1])
-                    end
+                local val = lib.decodeField(opt, readBits)
+                if val ~= nil then
+                    Discovery.setOptionValue(m, opt.configKey, val)
                 end
             end
         end
@@ -248,40 +205,11 @@ local function ApplyConfigHash(hash)
             if schema then
                 local cfg = special.mod.config
                 for _, field in ipairs(schema) do
-                    local bits = lib.resolveBits(field)
-                    local key = field.configKey
-
-                    -- Resolve write target for nested keys
-                    local tbl, leafKey
-                    if type(key) == "table" then
-                        tbl = cfg
-                        for i = 1, #key - 1 do
-                            tbl = tbl[key[i]]
-                            if not tbl then
-                                Core.warn("stateSchema decode: config path missing at '" .. key[i] .. "' in " .. special.modName)
-                                break
-                            end
-                        end
-                        leafKey = key[#key]
-                    else
-                        tbl = cfg
-                        leafKey = key
-                    end
-
-                    if tbl then
-                        if field.type == "checkbox" then
-                            tbl[leafKey] = readBits(1) == 1
-                        elseif field.type == "dropdown" or field.type == "radio" then
-                            local idx = readBits(bits)
-                            if field.values and idx < #field.values then
-                                tbl[leafKey] = field.values[idx + 1]
-                            end
-                        else
-                            Core.warn("stateSchema decode: unknown type '" .. tostring(field.type) .. "' in " .. special.modName)
-                        end
+                    local val = lib.decodeField(field, readBits)
+                    if val ~= nil then
+                        lib.writePath(cfg, field.configKey, val)
                     end
                 end
-                -- Refresh staging from updated config
                 if special.mod.SnapshotStaging then
                     special.mod.SnapshotStaging()
                 end

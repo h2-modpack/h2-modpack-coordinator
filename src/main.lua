@@ -26,14 +26,7 @@ public.config = config
 -- Shared namespace for cross-file communication within this plugin.
 -- All imported files attach to Core and read from Core.Discovery.
 Core = {}
-
---- Print a warning to the console when DebugMode is enabled.
---- Use for schema validation, missing fields, and module author diagnostics.
-function Core.warn(msg)
-    if config.DebugMode then
-        print("[adamant] " .. msg)
-    end
-end
+local lib = rom.mods['adamant-Modpack_Lib']
 
 -- =============================================================================
 -- LIFECYCLE
@@ -41,6 +34,9 @@ end
 
 local function on_ready()
     import_as_fallback(rom.game)
+
+    -- 0. Fixed definitions (constants, default profiles)
+    import 'def.lua'
 
     -- 1. Import and run discovery (discovery.lua self-runs on import)
     import 'discovery.lua'
@@ -62,6 +58,7 @@ end
 
 local function on_reload()
     import_as_fallback(rom.game)
+    import 'def.lua'
     import 'discovery.lua'
     import 'hud.lua'
     import 'ui_theme.lua'

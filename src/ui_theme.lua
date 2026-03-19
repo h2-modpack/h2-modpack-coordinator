@@ -69,33 +69,37 @@ local function PushTextColor(color)
     ui.PushStyleColor(uiCol.Text, color[1], color[2], color[3], color[4])
 end
 
-local THEME_COLOR_COUNT = 20
+local themeColors = {
+    { uiCol.Text,            colors.text },
+    { uiCol.TextDisabled,    colors.textDisabled },
+    { uiCol.WindowBg,        colors.windowBg },
+    { uiCol.ChildBg,         colors.childBg },
+    { uiCol.Header,          colors.header },
+    { uiCol.HeaderHovered,   colors.headerHover },
+    { uiCol.HeaderActive,    colors.headerActive },
+    { uiCol.Button,          colors.button },
+    { uiCol.ButtonHovered,   colors.buttonHover },
+    { uiCol.ButtonActive,    colors.buttonActive },
+    { uiCol.FrameBg,         colors.frameBg },
+    { uiCol.FrameBgHovered,  colors.frameBgHover },
+    { uiCol.FrameBgActive,   colors.frameBgActive },
+    { uiCol.CheckMark,       colors.checkMark },
+    { uiCol.Tab,             colors.tab },
+    { uiCol.TabHovered,      colors.tabHover },
+    { uiCol.TabActive,       colors.tabActive },
+    { uiCol.Separator,       colors.separator },
+    { uiCol.Border,          colors.border },
+    { uiCol.TitleBgActive,   colors.header },
+}
+
 local function PushTheme()
-    local push = ui.PushStyleColor
-    push(uiCol.Text,            table.unpack(colors.text))
-    push(uiCol.TextDisabled,    table.unpack(colors.textDisabled))
-    push(uiCol.WindowBg,        table.unpack(colors.windowBg))
-    push(uiCol.ChildBg,         table.unpack(colors.childBg))
-    push(uiCol.Header,          table.unpack(colors.header))
-    push(uiCol.HeaderHovered,   table.unpack(colors.headerHover))
-    push(uiCol.HeaderActive,    table.unpack(colors.headerActive))
-    push(uiCol.Button,          table.unpack(colors.button))
-    push(uiCol.ButtonHovered,   table.unpack(colors.buttonHover))
-    push(uiCol.ButtonActive,    table.unpack(colors.buttonActive))
-    push(uiCol.FrameBg,         table.unpack(colors.frameBg))
-    push(uiCol.FrameBgHovered,  table.unpack(colors.frameBgHover))
-    push(uiCol.FrameBgActive,   table.unpack(colors.frameBgActive))
-    push(uiCol.CheckMark,       table.unpack(colors.checkMark))
-    push(uiCol.Tab,             table.unpack(colors.tab))
-    push(uiCol.TabHovered,      table.unpack(colors.tabHover))
-    push(uiCol.TabActive,       table.unpack(colors.tabActive))
-    push(uiCol.Separator,       table.unpack(colors.separator))
-    push(uiCol.Border,          table.unpack(colors.border))
-    push(uiCol.TitleBgActive,   table.unpack(colors.header))
+    for _, entry in ipairs(themeColors) do
+        ui.PushStyleColor(entry[1], table.unpack(entry[2]))
+    end
 end
 
 local function PopTheme()
-    ui.PopStyleColor(THEME_COLOR_COUNT)
+    ui.PopStyleColor(#themeColors)
 end
 
 -- =============================================================================

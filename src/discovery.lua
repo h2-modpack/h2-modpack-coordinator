@@ -9,6 +9,7 @@
 -- The module's public.definition provides id, name, group, tooltip, default, etc.
 
 local Discovery = {}
+local lib = rom.mods['adamant-Modpack_Lib']
 
 -- -------------------------------------------------------------------------
 -- CANONICAL ORDER (hash-stable — append only, never reorder)
@@ -92,8 +93,8 @@ function Discovery.run()
         local mod = mods[entry.modName]
         if mod and mod.definition then
             local def = mod.definition
-            if not def.id or not def.enable or not def.disable then
-                Core.warn("Skipping " .. entry.modName .. ": missing id, enable, or disable")
+            if not def.id or not def.apply or not def.revert then
+                lib.warn("Skipping " .. entry.modName .. ": missing id, apply, or revert")
             else
                 local module = {
                     modName    = entry.modName,
@@ -112,6 +113,7 @@ function Discovery.run()
                 Discovery.modulesById[def.id] = module
                 if def.options and #def.options > 0 then
                     table.insert(Discovery.modulesWithOptions, module)
+                    lib.validateSchema(def.options, entry.modName)
                 end
 
                 -- Category tracking
@@ -138,9 +140,12 @@ function Discovery.run()
         local mod = mods[entry.modName]
         if mod and mod.definition then
             local def = mod.definition
-            if not def.name or not def.enable or not def.disable then
-                Core.warn("Skipping special " .. entry.modName .. ": missing name, enable, or disable")
+            if not def.name or not def.apply or not def.revert then
+                lib.warn("Skipping special " .. entry.modName .. ": missing name, apply, or revert")
             else
+                if def.stateSchema then
+                    lib.validateSchema(def.stateSchema, entry.modName)
+                end
                 table.insert(Discovery.specials, {
                     modName     = entry.modName,
                     mod         = mod,
@@ -199,10 +204,10 @@ end
 --- Write a module's Enabled state and call enable/disable.
 function Discovery.setModuleEnabled(module, enabled)
     module.mod.config.Enabled = enabled
-    if enabled then
-        module.definition.enable()
-    else
-        module.definition.disable()
+    local fn = enabled and module.definition.apply or module.definition.revert
+    local ok, err = pcall(fn)
+    if not ok then
+        lib.warn(module.modName .. " " .. (enabled and "enable" or "disable") .. " failed: " .. tostring(err))
     end
 end
 
@@ -224,10 +229,10 @@ end
 --- Write a special module's Enabled state and call enable/disable.
 function Discovery.setSpecialEnabled(special, enabled)
     special.mod.config.Enabled = enabled
-    if enabled then
-        special.definition.enable()
-    else
-        special.definition.disable()
+    local fn = enabled and special.definition.apply or special.definition.revert
+    local ok, err = pcall(fn)
+    if not ok then
+        lib.warn(special.modName .. " " .. (enabled and "enable" or "disable") .. " failed: " .. tostring(err))
     end
 end
 

@@ -1,7 +1,9 @@
 local ui = rom.ImGui
+local lib = rom.mods['adamant-Modpack_Lib']
 
 local Discovery = Core.Discovery
 local T = Core.Theme
+local Def = Core.Def
 
 -- Unpack theme for convenient access
 local colors            = T.colors
@@ -74,7 +76,7 @@ SnapshotToStaging()
 -- CACHED DISPLAY DATA (rebuilt on dirty flag, never per-frame)
 -- =============================================================================
 
-local NUM_PROFILES = 10
+local NUM_PROFILES = Def.NUM_PROFILES
 
 local slotLabels = {}
 local slotOccupied = {}
@@ -158,6 +160,16 @@ end
 -- TOGGLE HELPERS (event handlers — OK to touch Chalk here)
 -- =============================================================================
 
+--- Apply enable/disable on the game side only (no Chalk, no staging).
+--- Shared by ToggleModule and the master toggle.
+local function SetModuleState(module, state)
+    local fn = state and module.definition.apply or module.definition.revert
+    local ok, err = pcall(fn)
+    if not ok then
+        lib.warn((module.modName or "unknown") .. " " .. (state and "apply" or "revert") .. " failed: " .. tostring(err))
+    end
+end
+
 local function ToggleModule(module, enabled)
     -- Update staging
     staging.modules[module.id] = enabled
@@ -177,10 +189,11 @@ local function ChangeOption(module, configKey, value)
     staging.options[module.id][configKey] = value
     -- Write to Chalk
     Discovery.setOptionValue(module, configKey, value)
-    -- Re-apply if data mutation (option may affect game tables)
+    -- Re-apply if data mutation (option may affect game tables).
+    -- disable() restores vanilla, enable() re-applies with the new option value.
     if module.definition.dataMutation then
-        module.definition.disable()
-        module.definition.enable()
+        SetModuleState(module, false)
+        SetModuleState(module, true)
         SetupRunData()
     end
     InvalidateHash()
@@ -233,15 +246,7 @@ local function SetBugFixes(flag)
     Core.UpdateHash()
 end
 
--- =============================================================================
--- DEFAULT PROFILES
--- =============================================================================
-
-local defaultProfiles = {
-    { Name = "AnyFear",  Hash = "1AfB0V.3", Tooltip = "RTA Disabled. Arachne Pity Disabled" },
-    { Name = "HighFear", Hash = "1AfB0t.3", Tooltip = "RTA Disabled. Arachne Spawn Forced" },
-    { Name = "RTA",      Hash = "1AfB20.3", Tooltip = "RTA Enabled. Arachne Pity Enabled. Medea/Arachne Spawns Not Forced" },
-}
+local defaultProfiles = Def.defaultProfiles
 
 
 -- =============================================================================
@@ -278,51 +283,10 @@ local function DrawCheckboxGroup(layoutData, category)
                         local opts = staging.options[m.id] or {}
                         for _, opt in ipairs(m.options) do
                             ui.PushID(m.id .. "_" .. opt.configKey)
-
-                            if opt.type == "checkbox" then
-                                local bVal = opts[opt.configKey]
-                                if bVal == nil then bVal = opt.default end
-                                local newVal, bChg = ui.Checkbox(opt.label or opt.configKey, bVal or false)
-                                if bChg then
-                                    ChangeOption(m, opt.configKey, newVal)
-                                end
-
-                            elseif opt.type == "dropdown" then
-                                local current = opts[opt.configKey] or opt.default or ""
-                                local currentIdx = 1
-                                for i, v in ipairs(opt.values) do
-                                    if v == current then currentIdx = i; break end
-                                end
-                                local preview = opt.values[currentIdx] or ""
-                                ui.Text(opt.label or opt.configKey)
-                                ui.SameLine()
-                                ui.PushItemWidth(ui.GetWindowWidth() * FIELD_MEDIUM)
-                                if ui.BeginCombo("##opt", preview) then
-                                    for i, v in ipairs(opt.values) do
-                                        if ui.Selectable(v, i == currentIdx) then
-                                            if i ~= currentIdx then
-                                                ChangeOption(m, opt.configKey, v)
-                                            end
-                                        end
-                                    end
-                                    ui.EndCombo()
-                                end
-                                ui.PopItemWidth()
-
-                            elseif opt.type == "radio" then
-                                local current = opts[opt.configKey] or opt.default or ""
-                                ui.Text(opt.label or opt.configKey)
-                                for _, v in ipairs(opt.values) do
-                                    if ui.RadioButton(v, current == v) then
-                                        if v ~= current then
-                                            ChangeOption(m, opt.configKey, v)
-                                        end
-                                    end
-                                    ui.SameLine()
-                                end
-                                ui.NewLine()
+                            local newVal, chg = lib.drawField(ui, opt, opts[opt.configKey], ui.GetWindowWidth() * FIELD_MEDIUM)
+                            if chg then
+                                ChangeOption(m, opt.configKey, newVal)
                             end
-
                             ui.PopID()
                         end
                         ui.Unindent()
@@ -435,7 +399,7 @@ local function DrawQuickSetup()>
 
     -- Quick content from special modules
     for _, special in ipairs(Discovery.specials) do
-        if special.mod.DrawQuickContent then
+        if staging.specials[special.modName] and special.mod.DrawQuickContent then
             ui.Separator()
             ui.Spacing()
             special.mod.DrawQuickContent(ui, MakeSpecialOnChanged(special), T)
@@ -453,6 +417,8 @@ local function DrawSpecialTab(special)
     if ui.IsItemHovered() and special.definition.tooltip then
         ui.SetTooltip(special.definition.tooltip)
     end
+
+    if not enabled then return end
 
     ui.Spacing()
 
@@ -670,30 +636,16 @@ local function DrawMainWindow()
     if chg then
         staging.ModEnabled = val
         config.ModEnabled = val  -- write to Chalk once (event handler)
-        if not val then
-            -- Disable all: update staging + Chalk
-            for _, m in ipairs(Discovery.modules) do
-                if staging.modules[m.id] then
-                    m.definition.disable()
-                end
-                -- Keep staging.modules as-is so re-enable restores previous state
+        -- Apply game-side enable/disable based on staging state.
+        -- Staging is preserved so re-enable restores previous selections.
+        for _, m in ipairs(Discovery.modules) do
+            if staging.modules[m.id] then
+                SetModuleState(m, val)
             end
-            for _, special in ipairs(Discovery.specials) do
-                if staging.specials[special.modName] then
-                    special.definition.disable()
-                end
-            end
-        else
-            -- Re-enable from staging state
-            for _, m in ipairs(Discovery.modules) do
-                if staging.modules[m.id] then
-                    m.definition.enable()
-                end
-            end
-            for _, special in ipairs(Discovery.specials) do
-                if staging.specials[special.modName] then
-                    special.definition.enable()
-                end
+        end
+        for _, special in ipairs(Discovery.specials) do
+            if staging.specials[special.modName] then
+                SetModuleState(special, val)
             end
         end
         SetupRunData()
