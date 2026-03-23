@@ -6,13 +6,15 @@ Coordinator that discovers installed adamant modules, provides a unified UI, and
 
 ```
 src/
-  main.lua         -- entry point, lifecycle, imports
-  def.lua          -- shared constants (NUM_PROFILES, defaultProfiles)
-  discovery.lua    -- module discovery, canonical ordering, state accessors
-  hud.lua          -- config hash encoding/decoding, HUD mod marker
-  ui_theme.lua     -- colors, layout constants, theme push/pop
-  ui.lua           -- staging, tabs, window rendering, toggle handlers
-  config.lua       -- Chalk config schema (ModEnabled, DebugMode, Profiles)
+  main.lua               -- entry point, lifecycle, imports
+  def.lua                -- shared constants (NUM_PROFILES, defaultProfiles)
+  discovery_registry.lua -- MODULE_ORDER and SPECIAL_MODULES canonical lists
+  discovery.lua          -- module discovery, ordering, state accessors
+  hash.lua               -- pure config hash encoding/decoding (no engine deps)
+  hud.lua                -- HUD mod marker display (reads Core.Hash)
+  ui_theme.lua           -- colors, layout constants, theme push/pop
+  ui.lua                 -- staging, tabs, window rendering, toggle handlers
+  config.lua             -- Chalk config schema (ModEnabled, DebugMode, Profiles)
 ```
 
 Files are imported sequentially in main.lua and share state via the `Core` namespace. Each file attaches its exports (e.g., `Core.Discovery`, `Core.Theme`, `Core.Def`).
@@ -31,9 +33,9 @@ To register a new module:
 
 The UI automatically creates tabs for new categories.
 
-### Config hash (hud.lua)
+### Config hash (hash.lua)
 
-Encodes all module states into a compact base62 string:
+Pure encoding logic with no engine dependencies — fully testable in standalone Lua. Encodes all module states into a compact base62 string:
 
 ```
 <bool_hash>.<special_hash>
@@ -41,8 +43,11 @@ Encodes all module states into a compact base62 string:
 
 - **Bool hash**: one bit per boolean module (in MODULE_ORDER order), plus bits for inline options
 - **Special hash**: each special module's stateSchema fields encoded sequentially
+- **Chunk size**: 30 bits per chunk (`CHUNK_BITS = 30`), chunks separated by `.`
 
-`GetConfigHash(source)` accepts an optional staging table for computing hashes without flushing to Chalk. `ApplyConfigHash(hash)` decodes and applies a hash to all modules.
+`Core.Hash.GetConfigHash(source)` accepts an optional staging table for computing hashes without flushing to Chalk. `Core.Hash.ApplyConfigHash(hash)` decodes and applies a hash to all modules.
+
+`hud.lua` handles only the HUD marker display — it reads `Core.Hash` but contains no encoding logic.
 
 ### UI (ui.lua)
 
