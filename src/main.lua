@@ -46,11 +46,13 @@ local function on_ready()
     -- 2. Config hash (pure logic, no engine deps beyond Discovery)
     import 'hash.lua'
 
-    -- 3. HUD system (mod mark display)
+    
+    -- 3. UI theme (colors, layout constants, helpers)
+    import 'ui_theme.lua'
+
+    -- 4. HUD system (mod mark display)
     import 'hud.lua'
 
-    -- 4. UI theme (colors, layout constants, helpers)
-    import 'ui_theme.lua'
 
     -- 5. UI system
     import 'ui.lua'
@@ -67,8 +69,8 @@ local function on_reload()
     import 'discovery_registry.lua'
     import 'discovery.lua'
     import 'hash.lua'
-    import 'hud.lua'
     import 'ui_theme.lua'
+    import 'hud.lua'
     import 'ui.lua'
 end
 
