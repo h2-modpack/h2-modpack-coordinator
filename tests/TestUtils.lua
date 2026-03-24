@@ -102,6 +102,7 @@ function MockDiscovery.create(moduleConfigs, optionConfigs, specialConfigs)
             name = mc.id,
             category = mc.category or "General",
             options = mc.options,
+            default = mc.default ~= nil and mc.default or false,
         }
 
         table.insert(discovery.modules, mod)

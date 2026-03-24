@@ -83,7 +83,7 @@ local slotOccupied = {}
 local slotLabelsDirty = true
 
 local cachedHash = nil
-local cachedBoolHash = nil
+local cachedFingerprint = nil
 
 local selectedProfileSlot = 1
 local selectedProfileCombo = 0
@@ -91,7 +91,6 @@ local importHashBuffer = ""
 local importFeedback = nil
 local importFeedbackColor = nil
 local importFeedbackTime = nil
-local excludeSpecials = false
 
 -- Bug fix status cache
 local bugFixStatusText = ""
@@ -107,14 +106,14 @@ end
 
 local function InvalidateHash()
     cachedHash = nil
-    cachedBoolHash = nil
+    cachedFingerprint = nil
 end
 
 local function GetCachedHash()
     if not cachedHash then
-        cachedHash, cachedBoolHash = Core.GetConfigHash(staging)
+        cachedHash, cachedFingerprint = Core.GetConfigHash(staging)
     end
-    return cachedHash, cachedBoolHash
+    return cachedHash, cachedFingerprint
 end
 
 local function RebuildSlotLabels()
@@ -438,24 +437,14 @@ local function DrawProfiles()
     ui.Indent()
 
     -- Read cached hash (computed from staging, not Chalk)
-    local currentHash, boolHash = GetCachedHash()
-    ui.Text("Current Hash:")
+    local canonical, fingerprint = GetCachedHash()
+    ui.Text("Config ID:")
     ui.SameLine()
-    DrawColoredText(colors.success, boolHash)
-    local specialPayload = string.sub(currentHash, #boolHash + 1)
-    if specialPayload ~= "" then
-        ui.SameLine()
-        DrawColoredText(colors.textDisabled, specialPayload)
-    end
+    DrawColoredText(colors.success, fingerprint)
     ui.SameLine()
     if ui.Button("Copy") then
-        ui.SetClipboardText(excludeSpecials and boolHash or currentHash)
+        ui.SetClipboardText(canonical)
         SetImportFeedback("Copied to clipboard!", colors.success)
-    end
-    if #Discovery.specials > 0 then
-        ui.SameLine()
-        local exVal, exChg = ui.Checkbox("Exclude Specials", excludeSpecials)
-        if exChg then excludeSpecials = exVal end
     end
 
     ui.Spacing()

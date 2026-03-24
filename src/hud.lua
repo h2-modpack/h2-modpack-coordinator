@@ -1,8 +1,9 @@
 -- =============================================================================
 -- HUD SYSTEM: Mod Mark Display
 -- =============================================================================
--- Manages the modpack hash display on the HUD.
+-- Manages the modpack fingerprint display on the HUD.
 -- Hash logic lives in hash.lua (Core.Hash).
+-- Displays the short fingerprint (base62 checksum) of the canonical config string.
 
 local Hash = Core.Hash
 
@@ -10,8 +11,8 @@ local Hash = Core.Hash
 -- HUD MARK
 -- =============================================================================
 
-local _, initBoolHash = Hash.GetConfigHash()
-local currentHash = config.ModEnabled and initBoolHash or ""
+local _, initFingerprint = Hash.GetConfigHash()
+local currentHash = config.ModEnabled and initFingerprint or ""
 local displayedHash = nil
 
 ScreenData.HUD.ComponentData.ModpackMark = {
@@ -59,15 +60,15 @@ Core.GetConfigHash = Hash.GetConfigHash
 Core.ApplyConfigHash = Hash.ApplyConfigHash
 
 function Core.UpdateHash()
-    local _, boolHash = Hash.GetConfigHash()
-    currentHash = boolHash
+    local _, fingerprint = Hash.GetConfigHash()
+    currentHash = fingerprint
     UpdateModMark()
 end
 
 function Core.SetModMarker(enabled)
     if enabled then
-        local _, boolHash = Hash.GetConfigHash()
-        currentHash = boolHash
+        local _, fingerprint = Hash.GetConfigHash()
+        currentHash = fingerprint
     else
         currentHash = ""
     end

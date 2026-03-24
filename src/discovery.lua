@@ -1,18 +1,13 @@
 -- =============================================================================
 -- MODULE DISCOVERY
 -- =============================================================================
--- Discovers installed adamant-* standalone modules by checking rom.mods.
--- Order is fixed for hash compatibility — matches the original modules/init.lua.
--- DO NOT reorder entries — it will break existing config hashes / profiles.
---
--- Each entry: { modName = "adamant-XXX", category = "...", categoryLabel = "..." }
--- The module's public.definition provides id, name, group, tooltip, default, etc.
+-- Auto-discovers all installed modules that opt in via definition.modpackModule = true,.
+-- Regular modules: definition.special is nil/false.
+-- Special modules: definition.special = true.
+-- Modules are sorted alphabetically by display name within each category.
 
 local Discovery = {}
 local lib = rom.mods['adamant-Modpack_Lib']
-
-local MODULE_ORDER = Core.MODULE_ORDER
-local SPECIAL_MODULES = Core.SPECIAL_MODULES
 
 -- -------------------------------------------------------------------------
 -- DISCOVERY STATE
@@ -35,12 +30,41 @@ Discovery.categoryLayouts = {}  -- category key -> UI layout (groups)
 function Discovery.run()
     local mods = rom.mods
 
+    -- Collect all opted-in modules
+    local found = {}
+    for modName, mod in pairs(mods) do
+        if type(mod) == "table" and mod.definition and mod.definition.modpackModule then
+            table.insert(found, { modName = modName, mod = mod, def = mod.definition })
+        end
+    end
+
+    -- Sort alphabetically by display name for stable UI ordering
+    table.sort(found, function(a, b)
+        return (a.def.name or a.def.id or a.modName) < (b.def.name or b.def.id or b.modName)
+    end)
+
     local categorySet = {}
 
-    for _, modName in ipairs(MODULE_ORDER) do
-        local mod = mods[modName]
-        if mod and mod.definition then
-            local def = mod.definition
+    for _, entry in ipairs(found) do
+        local modName = entry.modName
+        local mod     = entry.mod
+        local def     = entry.def
+
+        if def.special then
+            if not def.name or not def.apply or not def.revert then
+                lib.warn("Skipping special " .. modName .. ": missing name, apply, or revert")
+            else
+                if def.stateSchema then
+                    lib.validateSchema(def.stateSchema, modName)
+                end
+                table.insert(Discovery.specials, {
+                    modName     = modName,
+                    mod         = mod,
+                    definition  = def,
+                    stateSchema = def.stateSchema,
+                })
+            end
+        else
             if not def.id or not def.apply or not def.revert then
                 lib.warn("Skipping " .. modName .. ": missing id, apply, or revert")
             else
@@ -55,7 +79,7 @@ function Discovery.run()
                     group      = def.group or "General",
                     tooltip    = def.tooltip or "",
                     default    = def.default,
-                    options    = def.options,  -- nil if no inline options
+                    options    = def.options,
                 }
 
                 table.insert(Discovery.modules, module)
@@ -65,7 +89,6 @@ function Discovery.run()
                     lib.validateSchema(def.options, modName)
                 end
 
-                -- Category tracking (category string is both key and display label)
                 if not categorySet[cat] then
                     categorySet[cat] = true
                     table.insert(Discovery.categories, { key = cat, label = cat })
@@ -77,26 +100,8 @@ function Discovery.run()
         end
     end
 
-    -- Discover special modules (ordered)
-    for _, modName in ipairs(SPECIAL_MODULES) do
-        local mod = mods[modName]
-        if mod and mod.definition then
-            local def = mod.definition
-            if not def.name or not def.apply or not def.revert then
-                lib.warn("Skipping special " .. modName .. ": missing name, apply, or revert")
-            else
-                if def.stateSchema then
-                    lib.validateSchema(def.stateSchema, modName)
-                end
-                table.insert(Discovery.specials, {
-                    modName     = modName,
-                    mod         = mod,
-                    definition  = def,
-                    stateSchema = def.stateSchema,  -- nil if module has no declarative state
-                })
-            end
-        end
-    end
+    -- Sort categories alphabetically for consistent sidebar ordering
+    table.sort(Discovery.categories, function(a, b) return a.label < b.label end)
 
     -- Build UI layouts
     for _, cat in ipairs(Discovery.categories) do
@@ -126,6 +131,8 @@ function Discovery.buildLayout(category)
             Tooltip   = m.tooltip,
         })
     end
+
+    table.sort(groupOrder)
 
     local layout = {}
     for _, g in ipairs(groupOrder) do

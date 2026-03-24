@@ -5,14 +5,14 @@ local lu = require('luaunit')
 -- =============================================================================
 -- TestUtils.lua has already set up Core, lib, and rom mocks.
 -- We load hash.lua which attaches Hash to Core.
--- hash.lua reads Core.Discovery at call time, so each test sets it via withDiscovery().
+-- Each test sets Core.Discovery via withDiscovery().
 
 dofile("src/hash.lua")
 
 local Hash = Core.Hash
 
 -- =============================================================================
--- BASE62 TESTS
+-- BASE62 TESTS (EncodeBase62/DecodeBase62 still used for fingerprint)
 -- =============================================================================
 
 TestBase62 = {}
@@ -43,32 +43,30 @@ function TestBase62:testDecodeInvalidChar()
 end
 
 -- =============================================================================
--- HASH ROUND-TRIP: BOOL-ONLY MODULES
+-- HELPERS
 -- =============================================================================
 
--- Helper: set up Core.Discovery from a MockDiscovery, run hash functions
 local function withDiscovery(discovery)
     Core.Discovery = discovery
     return Hash.GetConfigHash, Hash.ApplyConfigHash
 end
 
-TestHashBoolOnly = {}
+-- =============================================================================
+-- KEY-VALUE ROUND-TRIPS
+-- =============================================================================
 
-function TestHashBoolOnly:testAllEnabled()
+TestHashKeyValue = {}
+
+function TestHashKeyValue:testBoolOnlyAllEnabled()
     local discovery = MockDiscovery.create({
-        { id = "A", category = "Cat1", enabled = true },
-        { id = "B", category = "Cat1", enabled = true },
-        { id = "C", category = "Cat1", enabled = true },
+        { id = "A", category = "Cat1", enabled = true,  default = false },
+        { id = "B", category = "Cat1", enabled = true,  default = false },
+        { id = "C", category = "Cat1", enabled = true,  default = false },
     })
-
     local GetHash, ApplyHash = withDiscovery(discovery)
     local hash = GetHash()
 
-    -- Flip all to false
-    for _, m in ipairs(discovery.modules) do
-        m.mod.config.Enabled = false
-    end
-
+    for _, m in ipairs(discovery.modules) do m.mod.config.Enabled = false end
     ApplyHash(hash)
 
     for _, m in ipairs(discovery.modules) do
@@ -76,22 +74,19 @@ function TestHashBoolOnly:testAllEnabled()
     end
 end
 
-function TestHashBoolOnly:testMixedStates()
+function TestHashKeyValue:testBoolOnlyMixedStates()
     local discovery = MockDiscovery.create({
-        { id = "A", category = "Cat1", enabled = true },
-        { id = "B", category = "Cat1", enabled = false },
-        { id = "C", category = "Cat2", enabled = true },
-        { id = "D", category = "Cat2", enabled = false },
+        { id = "A", category = "Cat1", enabled = true,  default = false },
+        { id = "B", category = "Cat1", enabled = false, default = false },
+        { id = "C", category = "Cat2", enabled = true,  default = false },
+        { id = "D", category = "Cat2", enabled = false, default = false },
     })
-
     local GetHash, ApplyHash = withDiscovery(discovery)
     local hash = GetHash()
 
-    -- Flip everything
     for _, m in ipairs(discovery.modules) do
         m.mod.config.Enabled = not m.mod.config.Enabled
     end
-
     ApplyHash(hash)
 
     lu.assertTrue(discovery.modulesById["A"].mod.config.Enabled)
@@ -100,61 +95,32 @@ function TestHashBoolOnly:testMixedStates()
     lu.assertFalse(discovery.modulesById["D"].mod.config.Enabled)
 end
 
-function TestHashBoolOnly:testAllDisabled()
-    local discovery = MockDiscovery.create({
-        { id = "A", category = "Cat1", enabled = false },
-        { id = "B", category = "Cat1", enabled = false },
-    })
-
-    local GetHash, ApplyHash = withDiscovery(discovery)
-    local hash = GetHash()
-
-    -- Enable all
-    for _, m in ipairs(discovery.modules) do
-        m.mod.config.Enabled = true
-    end
-
-    ApplyHash(hash)
-
-    lu.assertFalse(discovery.modulesById["A"].mod.config.Enabled)
-    lu.assertFalse(discovery.modulesById["B"].mod.config.Enabled)
-end
-
--- =============================================================================
--- HASH ROUND-TRIP: WITH INLINE OPTIONS
--- =============================================================================
-
-TestHashWithOptions = {}
-
-function TestHashWithOptions:testDropdownOptionRoundTrip()
+function TestHashKeyValue:testDropdownOptionRoundTrip()
     local opts = {
         { type = "dropdown", configKey = "Mode", values = {"Vanilla", "Always", "Never"}, default = "Vanilla" },
     }
     local discovery = MockDiscovery.create({
-        { id = "A", category = "Cat1", enabled = true, options = opts },
+        { id = "A", category = "Cat1", enabled = true, default = false, options = opts },
     })
-    -- Set the option value on the mock config
     discovery.modules[1].mod.config.Mode = "Always"
 
     local GetHash, ApplyHash = withDiscovery(discovery)
     local hash = GetHash()
 
-    -- Reset
     discovery.modules[1].mod.config.Enabled = false
     discovery.modules[1].mod.config.Mode = "Vanilla"
-
     ApplyHash(hash)
 
     lu.assertTrue(discovery.modules[1].mod.config.Enabled)
     lu.assertEquals(discovery.modules[1].mod.config.Mode, "Always")
 end
 
-function TestHashWithOptions:testCheckboxOptionRoundTrip()
+function TestHashKeyValue:testCheckboxOptionRoundTrip()
     local opts = {
-        { type = "checkbox", configKey = "Strict" },
+        { type = "checkbox", configKey = "Strict", default = false },
     }
     local discovery = MockDiscovery.create({
-        { id = "A", category = "Cat1", enabled = true, options = opts },
+        { id = "A", category = "Cat1", enabled = true, default = false, options = opts },
     })
     discovery.modules[1].mod.config.Strict = true
 
@@ -167,15 +133,9 @@ function TestHashWithOptions:testCheckboxOptionRoundTrip()
     lu.assertTrue(discovery.modules[1].mod.config.Strict)
 end
 
--- =============================================================================
--- HASH ROUND-TRIP: WITH SPECIAL MODULES
--- =============================================================================
-
-TestHashWithSpecials = {}
-
-function TestHashWithSpecials:testSpecialSchemaRoundTrip()
+function TestHashKeyValue:testSpecialSchemaRoundTrip()
     local discovery = MockDiscovery.create(
-        { { id = "A", category = "Cat1", enabled = true } },
+        { { id = "A", category = "Cat1", enabled = true, default = false } },
         {},
         {
             {
@@ -188,201 +148,175 @@ function TestHashWithSpecials:testSpecialSchemaRoundTrip()
             },
         }
     )
-
-    local GetHash, ApplyHash = withDiscovery(discovery)
-    local hash = GetHash()
-
-    -- Reset special config
+    -- Set non-default values
     discovery.specials[1].mod.config.Weapon = "Staff"
     discovery.specials[1].mod.config.Aspect = "Beta"
 
+    local GetHash, ApplyHash = withDiscovery(discovery)
+    local hash = GetHash()
+
+    discovery.specials[1].mod.config.Weapon = "Axe"
+    discovery.specials[1].mod.config.Aspect = "Default"
     ApplyHash(hash)
 
-    lu.assertEquals(discovery.specials[1].mod.config.Weapon, "Axe")
-    lu.assertEquals(discovery.specials[1].mod.config.Aspect, "Default")
+    lu.assertEquals(discovery.specials[1].mod.config.Weapon, "Staff")
+    lu.assertEquals(discovery.specials[1].mod.config.Aspect, "Beta")
 end
 
 -- =============================================================================
--- HASH STABILITY
+-- OMIT DEFAULTS
 -- =============================================================================
 
-TestHashStability = {}
+TestHashOmitDefaults = {}
 
-function TestHashStability:testSameConfigProducesSameHash()
+function TestHashOmitDefaults:testAllDefaultsProduceVersionOnlyCanonical()
     local discovery = MockDiscovery.create({
-        { id = "A", category = "Cat1", enabled = true },
-        { id = "B", category = "Cat1", enabled = false },
-        { id = "C", category = "Cat2", enabled = true },
+        { id = "A", category = "Cat1", enabled = false, default = false },
+        { id = "B", category = "Cat1", enabled = true,  default = true  },
     })
-
     local GetHash = withDiscovery(discovery)
-    local hash1 = GetHash()
-    local hash2 = GetHash()
+    local canonical = GetHash()
 
-    lu.assertEquals(hash1, hash2)
+    lu.assertEquals(canonical, "_v=1")
 end
 
-function TestHashStability:testDifferentConfigProducesDifferentHash()
+function TestHashOmitDefaults:testNonDefaultAppearsInCanonical()
     local discovery = MockDiscovery.create({
-        { id = "A", category = "Cat1", enabled = true },
-        { id = "B", category = "Cat1", enabled = false },
+        { id = "A", category = "Cat1", enabled = true, default = false },
     })
+    local GetHash = withDiscovery(discovery)
+    local canonical = GetHash()
+
+    lu.assertStrContains(canonical, "A=1")
+end
+
+function TestHashOmitDefaults:testOptionAtDefaultOmitted()
+    local opts = {
+        { type = "dropdown", configKey = "Mode", values = {"Vanilla", "Always"}, default = "Vanilla" },
+    }
+    local discovery = MockDiscovery.create({
+        { id = "A", category = "Cat1", enabled = false, default = false, options = opts },
+    })
+    discovery.modules[1].mod.config.Mode = "Vanilla"  -- at default
 
     local GetHash = withDiscovery(discovery)
-    local hash1 = GetHash()
+    local canonical = GetHash()
+
+    lu.assertEquals(canonical, "_v=1")
+end
+
+function TestHashOmitDefaults:testOptionNonDefaultIncluded()
+    local opts = {
+        { type = "dropdown", configKey = "Mode", values = {"Vanilla", "Always"}, default = "Vanilla" },
+    }
+    local discovery = MockDiscovery.create({
+        { id = "A", category = "Cat1", enabled = false, default = false, options = opts },
+    })
+    discovery.modules[1].mod.config.Mode = "Always"  -- non-default
+
+    local GetHash = withDiscovery(discovery)
+    local canonical = GetHash()
+
+    lu.assertStrContains(canonical, "A.Mode=Always")
+end
+
+-- =============================================================================
+-- ROBUSTNESS
+-- =============================================================================
+
+TestHashRobustness = {}
+
+function TestHashRobustness:testHashFromFewerModulesAppliesCleanly()
+    -- Hash produced with 2 modules, applied to setup with 3 modules
+    -- New module should reset to its default
+    local discovery2 = MockDiscovery.create({
+        { id = "A", category = "Cat1", enabled = true,  default = false },
+        { id = "B", category = "Cat1", enabled = false, default = false },
+    })
+    local GetHash = withDiscovery(discovery2)
+    local hash = GetHash()
+
+    -- Now apply to a 3-module discovery
+    local discovery3 = MockDiscovery.create({
+        { id = "A", category = "Cat1", enabled = false, default = false },
+        { id = "B", category = "Cat1", enabled = true,  default = false },
+        { id = "C", category = "Cat1", enabled = true,  default = false },  -- new module
+    })
+    local _, ApplyHash = withDiscovery(discovery3)
+    ApplyHash(hash)
+
+    lu.assertTrue(discovery3.modulesById["A"].mod.config.Enabled)   -- restored from hash
+    lu.assertFalse(discovery3.modulesById["B"].mod.config.Enabled)  -- restored from hash
+    lu.assertFalse(discovery3.modulesById["C"].mod.config.Enabled)  -- reset to default (false)
+end
+
+function TestHashRobustness:testHashWithDefaultTrueModule()
+    -- Module with default=true: absent from hash means enabled
+    local discovery = MockDiscovery.create({
+        { id = "A", category = "Cat1", enabled = true, default = true },
+    })
+    local GetHash, ApplyHash = withDiscovery(discovery)
+    local hash = GetHash()
+
+    -- Hash should be version-only (value matches default, no payload)
+    lu.assertEquals(hash, "_v=1")
+
+    -- Disable the module, then apply empty hash — should restore to default (true)
+    discovery.modules[1].mod.config.Enabled = false
+    ApplyHash(hash)
+    lu.assertTrue(discovery.modules[1].mod.config.Enabled)
+end
+
+-- =============================================================================
+-- FINGERPRINT
+-- =============================================================================
+
+TestHashFingerprint = {}
+
+function TestHashFingerprint:testSameConfigSameFingerprint()
+    local discovery = MockDiscovery.create({
+        { id = "A", category = "Cat1", enabled = true,  default = false },
+        { id = "B", category = "Cat1", enabled = false, default = false },
+    })
+    local GetHash = withDiscovery(discovery)
+    local _, fp1 = GetHash()
+    local _, fp2 = GetHash()
+    lu.assertEquals(fp1, fp2)
+end
+
+function TestHashFingerprint:testDifferentConfigDifferentFingerprint()
+    local discovery = MockDiscovery.create({
+        { id = "A", category = "Cat1", enabled = true,  default = false },
+        { id = "B", category = "Cat1", enabled = false, default = false },
+    })
+    local GetHash = withDiscovery(discovery)
+    local _, fp1 = GetHash()
 
     discovery.modules[2].mod.config.Enabled = true
-    local hash2 = GetHash()
+    local _, fp2 = GetHash()
 
-    lu.assertNotEquals(hash1, hash2)
+    lu.assertNotEquals(fp1, fp2)
 end
 
--- =============================================================================
--- CHUNK BOUNDARY (30-bit boundary)
--- =============================================================================
-
-TestHashChunkBoundary = {}
-
--- Helper: create N modules with a given enabled pattern
-local function createModules(n, enabledFn)
-    local modules = {}
-    for i = 1, n do
-        table.insert(modules, {
-            id = "M" .. i,
-            category = "Cat" .. math.ceil(i / 10),
-            enabled = enabledFn(i),
-        })
-    end
-    return modules
-end
-
-function TestHashChunkBoundary:testExactly30Modules()
-    -- 30 bools = exactly one full chunk, no overflow
-    local modules = createModules(30, function(i) return i % 2 == 1 end)
-    local discovery = MockDiscovery.create(modules)
-    local GetHash, ApplyHash = withDiscovery(discovery)
-    local hash = GetHash()
-
-    -- Flip all
-    for _, m in ipairs(discovery.modules) do
-        m.mod.config.Enabled = not m.mod.config.Enabled
-    end
-
-    ApplyHash(hash)
-
-    for i, m in ipairs(discovery.modules) do
-        if i % 2 == 1 then
-            lu.assertTrue(m.mod.config.Enabled, "Module " .. m.id .. " should be enabled")
-        else
-            lu.assertFalse(m.mod.config.Enabled, "Module " .. m.id .. " should be disabled")
-        end
-    end
-end
-
-function TestHashChunkBoundary:test31ModulesCrossesBoundary()
-    -- 31 bools = one full 30-bit chunk + 1 bit in second chunk
-    local modules = createModules(31, function(i) return i % 3 == 0 end)
-    local discovery = MockDiscovery.create(modules)
-    local GetHash, ApplyHash = withDiscovery(discovery)
-    local hash = GetHash()
-
-    -- Hash should contain a dot (two chunks)
-    lu.assertStrContains(hash, ".")
-
-    -- Flip all and restore
-    for _, m in ipairs(discovery.modules) do
-        m.mod.config.Enabled = not m.mod.config.Enabled
-    end
-
-    ApplyHash(hash)
-
-    for i, m in ipairs(discovery.modules) do
-        if i % 3 == 0 then
-            lu.assertTrue(m.mod.config.Enabled, "Module " .. m.id .. " should be enabled")
-        else
-            lu.assertFalse(m.mod.config.Enabled, "Module " .. m.id .. " should be disabled")
-        end
-    end
-end
-
-function TestHashChunkBoundary:test60ModulesTwoFullChunks()
-    -- 60 bools = exactly two full 30-bit chunks
-    local modules = createModules(60, function(i) return i <= 30 end)
-    local discovery = MockDiscovery.create(modules)
-    local GetHash, ApplyHash = withDiscovery(discovery)
-    local hash = GetHash()
-
-    -- Flip all
-    for _, m in ipairs(discovery.modules) do
-        m.mod.config.Enabled = not m.mod.config.Enabled
-    end
-
-    ApplyHash(hash)
-
-    for i, m in ipairs(discovery.modules) do
-        if i <= 30 then
-            lu.assertTrue(m.mod.config.Enabled, "Module " .. m.id .. " should be enabled")
-        else
-            lu.assertFalse(m.mod.config.Enabled, "Module " .. m.id .. " should be disabled")
-        end
-    end
-end
-
-function TestHashChunkBoundary:testAllEnabledAcrossBoundary()
-    -- 35 modules all enabled — verifies no data loss at boundary
-    local modules = createModules(35, function() return true end)
-    local discovery = MockDiscovery.create(modules)
-    local GetHash, ApplyHash = withDiscovery(discovery)
-    local hash = GetHash()
-
-    for _, m in ipairs(discovery.modules) do
-        m.mod.config.Enabled = false
-    end
-
-    ApplyHash(hash)
-
-    for _, m in ipairs(discovery.modules) do
-        lu.assertTrue(m.mod.config.Enabled, "Module " .. m.id .. " should be enabled")
-    end
-end
-
-function TestHashChunkBoundary:testOptionsAfterChunkBoundary()
-    -- 31 bool modules + a module with a dropdown option
-    -- Tests that options decode correctly after a multi-chunk bool section
-    local modules = createModules(31, function(i) return i % 2 == 0 end)
-    local opts = {
-        { type = "dropdown", configKey = "Style", values = {"A", "B", "C", "D"}, default = "A" },
-    }
-    table.insert(modules, {
-        id = "WithOpt", category = "Cat4", enabled = true, options = opts,
+function TestHashFingerprint:testFingerprintIsNonEmptyString()
+    local discovery = MockDiscovery.create({
+        { id = "A", category = "Cat1", enabled = true, default = false },
     })
+    local GetHash = withDiscovery(discovery)
+    local _, fp = GetHash()
+    lu.assertIsString(fp)
+    lu.assertTrue(#fp > 0)
+end
 
-    local discovery = MockDiscovery.create(modules)
-    discovery.modules[32].mod.config.Style = "C"
-
-    local GetHash, ApplyHash = withDiscovery(discovery)
-    local hash = GetHash()
-
-    -- Reset everything
-    for _, m in ipairs(discovery.modules) do
-        m.mod.config.Enabled = not m.mod.config.Enabled
-    end
-    discovery.modules[32].mod.config.Style = "A"
-
-    ApplyHash(hash)
-
-    -- Verify bools restored
-    for i = 1, 31 do
-        local m = discovery.modules[i]
-        if i % 2 == 0 then
-            lu.assertTrue(m.mod.config.Enabled, "Module " .. m.id .. " should be enabled")
-        else
-            lu.assertFalse(m.mod.config.Enabled, "Module " .. m.id .. " should be disabled")
-        end
-    end
-    -- Verify option restored
-    lu.assertTrue(discovery.modules[32].mod.config.Enabled)
-    lu.assertEquals(discovery.modules[32].mod.config.Style, "C")
+function TestHashFingerprint:testAllDefaultsHasStableFingerprint()
+    -- Even with empty canonical, fingerprint should be stable
+    local discovery = MockDiscovery.create({
+        { id = "A", category = "Cat1", enabled = false, default = false },
+    })
+    local GetHash = withDiscovery(discovery)
+    local _, fp1 = GetHash()
+    local _, fp2 = GetHash()
+    lu.assertEquals(fp1, fp2)
 end
 
 -- =============================================================================
@@ -391,15 +325,34 @@ end
 
 TestHashErrors = {}
 
-function TestHashErrors:testEmptyHash()
+function TestHashErrors:testNilHashRejected()
     local discovery = MockDiscovery.create({})
     withDiscovery(discovery)
-    lu.assertFalse(Hash.ApplyConfigHash(""))
+    ---@diagnostic disable-next-line: param-type-mismatch
     lu.assertFalse(Hash.ApplyConfigHash(nil))
 end
 
-function TestHashErrors:testInvalidBase62()
-    local discovery = MockDiscovery.create({})
-    withDiscovery(discovery)
-    lu.assertFalse(Hash.ApplyConfigHash("!!!"))
+function TestHashErrors:testEmptyHashAppliesDefaults()
+    -- Empty canonical string is valid — means all values are at defaults
+    local discovery = MockDiscovery.create({
+        { id = "A", category = "Cat1", enabled = true, default = false },
+    })
+    local _, ApplyHash = withDiscovery(discovery)
+    local result = ApplyHash("")
+    lu.assertTrue(result)
+    lu.assertFalse(discovery.modules[1].mod.config.Enabled)  -- reset to default
+end
+
+function TestHashErrors:testMalformedHashStillAppliesDefaults()
+    -- Malformed entries are ignored, modules reset to defaults
+    local discovery = MockDiscovery.create({
+        { id = "A", category = "Cat1", enabled = true, default = false },
+    })
+    local _, ApplyHash = withDiscovery(discovery)
+
+    -- "A" is not a valid key=value pair but the hash string is non-empty
+    -- Should return true (non-empty input) and reset A to default
+    local result = ApplyHash("notavalidentry")
+    lu.assertTrue(result)
+    lu.assertFalse(discovery.modules[1].mod.config.Enabled)  -- reset to default
 end

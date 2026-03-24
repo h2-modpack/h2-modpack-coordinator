@@ -40,7 +40,6 @@ local function on_ready()
     import 'def.lua'
 
     -- 1. Import and run discovery (discovery.lua self-runs on import)
-    import 'discovery_registry.lua'
     import 'discovery.lua'
 
     -- 2. Config hash (pure logic, no engine deps beyond Discovery)
@@ -64,7 +63,6 @@ end
 local function on_reload()
     import_as_fallback(rom.game)
     import 'def.lua'
-    import 'discovery_registry.lua'
     import 'discovery.lua'
     import 'hash.lua'
     import 'ui_theme.lua'

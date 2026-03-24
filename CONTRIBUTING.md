@@ -8,8 +8,7 @@ Coordinator that discovers installed adamant modules, provides a unified UI, and
 src/
   main.lua               -- entry point, lifecycle, imports
   def.lua                -- shared constants (NUM_PROFILES, defaultProfiles)
-  discovery_registry.lua -- MODULE_ORDER and SPECIAL_MODULES canonical lists
-  discovery.lua          -- module discovery, ordering, state accessors
+  discovery.lua          -- auto-discovers opted-in modules, state accessors
   hash.lua               -- pure config hash encoding/decoding (no engine deps)
   hud.lua                -- HUD mod marker display (reads Core.Hash)
   ui_theme.lua           -- colors, layout constants, theme push/pop
@@ -23,33 +22,29 @@ Files are imported sequentially in main.lua and share state via the `Core` names
 
 ### Discovery (discovery.lua)
 
-Scans `rom.mods` for installed adamant modules using a canonical order list.
+Auto-discovers all installed modules that opt in via `definition.modpackModule = true`. No registry required — modules are picked up automatically on load.
 
-**MODULE_ORDER is append-only** -- never reorder or remove entries. Existing config hashes and profiles depend on positional encoding.
+- Regular modules: `def.special` is nil/false
+- Special modules: `def.special = true`
+- All metadata (id, name, category, group, tooltip, default) lives in each module's `public.definition`
+- Modules are sorted alphabetically by display name; categories and groups are also sorted alphabetically
 
-The registry contains only mod names — category, display name, and all other metadata live in each module's `public.definition`. The category string is used as both the lookup key and the tab label.
-
-To register a new module:
-1. Append the mod name string to `MODULE_ORDER` in `discovery_registry.lua` (or `SPECIAL_MODULES` for special modules)
-2. Set `def.category` in the module's `public.definition` to the desired tab name (e.g. `"Bug Fixes"`)
-
-A new tab is created automatically the first time a module with an unseen `def.category` is discovered.
-
-CI enforces append-only order via `enforce-discovery-order.yml` — it compares the existing module sequence against `main` and fails if any previously registered entry is reordered or removed.
+A new category tab is created automatically the first time a module with an unseen `def.category` is discovered. No Core changes needed to add a new module or category.
 
 ### Config hash (hash.lua)
 
-Pure encoding logic with no engine dependencies — fully testable in standalone Lua. Encodes all module states into a compact base62 string:
+Pure encoding logic with no engine dependencies — fully testable in standalone Lua. Uses a **key-value canonical string** format:
 
 ```
-<bool_hash>.<special_hash>
+ModId=1|ModId.configKey=value|adamant-SpecialName.configKey=value
 ```
 
-- **Bool hash**: one bit per boolean module (in MODULE_ORDER order), plus bits for inline options
-- **Special hash**: each special module's stateSchema fields encoded sequentially
-- **Chunk size**: 30 bits per chunk (`CHUNK_BITS = 30`), chunks separated by `.`
+- Only non-default values are encoded — adding new fields with defaults is non-breaking
+- Keys are sorted alphabetically for stable output
+- Value encoding is delegated to `lib.FieldTypes[field.type].toHash/fromHash`
+- An empty string means all values are at their defaults
 
-`Core.Hash.GetConfigHash(source)` accepts an optional staging table for computing hashes without flushing to Chalk. `Core.Hash.ApplyConfigHash(hash)` decodes and applies a hash to all modules.
+`GetConfigHash(source)` returns `canonical, fingerprint` — the canonical string is used for import/export, the 12-char base62 fingerprint is shown on the HUD. `ApplyConfigHash(hash)` decodes and applies a canonical string; unknown keys are ignored and missing keys reset to defaults.
 
 `hud.lua` handles only the HUD marker display — it reads `Core.Hash` but contains no encoding logic.
 
@@ -88,7 +83,7 @@ Set `def.category` to a new string in the module's `public.definition`. The tab 
 
 ## Guidelines
 
-- **MODULE_ORDER is append-only** -- this is the most critical invariant
-- All module apply/revert calls go through pcall -- log via `lib.warn`, never crash
-- UI reads from staging, not Chalk -- always keep staging in sync
-- Theme is data-driven -- don't hardcode counts or layout numbers
+- **Never rename `def.id` or `field.configKey` after release** — these are hash keys; renaming silently resets that field to default for anyone with an existing profile
+- All module apply/revert calls go through pcall — log via `lib.warn`, never crash
+- UI reads from staging, not Chalk — always keep staging in sync
+- Theme is data-driven — don't hardcode counts or layout numbers
