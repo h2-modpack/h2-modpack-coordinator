@@ -66,15 +66,15 @@ end
 
 -- Parse "key=value|key=value" into a table. Returns {} on empty input.
 local function Deserialize(str)
-    local pairs = {}
-    if not str or str == "" then return pairs end
+    local kv = {}
+    if not str or str == "" then return kv end
     for entry in string.gmatch(str .. "|", "([^|]*)|") do
         local k, v = string.match(entry, "^([^=]+)=(.*)$")
         if k and v then
-            pairs[k] = v
+            kv[k] = v
         end
     end
-    return pairs
+    return kv
 end
 
 -- Two independent djb2 passes with different seeds, concatenated.
@@ -137,7 +137,7 @@ function Hash.GetConfigHash(source)
             enabled = Core.Discovery.isModuleEnabled(m)
         end
         if enabled == nil then enabled = false end
-        local default = m.default ~= false  -- treat nil default as false
+        local default = m.default == true  -- treat nil default as false
         if enabled ~= default then
             kv[m.id] = enabled and "1" or "0"
         end
@@ -160,8 +160,21 @@ function Hash.GetConfigHash(source)
         end
     end
 
-    -- Special module state schema values (omit if matches field default)
+    -- Special module enabled states and state schema values
     for _, special in ipairs(Core.Discovery.specials) do
+        -- Enabled state (default is false; only encode if true)
+        local enabled
+        if source then
+            enabled = source.specials and source.specials[special.modName]
+        else
+            enabled = Core.Discovery.isSpecialEnabled(special)
+        end
+        if enabled == nil then enabled = false end
+        if enabled then
+            kv[special.modName] = "1"
+        end
+
+        -- State schema values (omit if matches field default)
         local schema = special.stateSchema
         if schema then
             local cfg = special.mod.config
@@ -203,7 +216,7 @@ function Hash.ApplyConfigHash(hash)
             Core.Discovery.setModuleEnabled(m, stored == "1")
         else
             -- Not in hash = was at default when hash was made, reset to default
-            local default = m.default ~= false
+            local default = m.default == true
             Core.Discovery.setModuleEnabled(m, default)
         end
     end
@@ -220,15 +233,20 @@ function Hash.ApplyConfigHash(hash)
         end
     end
 
-    -- Special module state schema values
+    -- Special module enabled states and state schema values
     for _, special in ipairs(Core.Discovery.specials) do
+        -- Enabled state (default is false)
+        local storedEnabled = kv[special.modName]
+        Core.Discovery.setSpecialEnabled(special, storedEnabled == "1")
+
+        -- State schema values
         local schema = special.stateSchema
         if schema then
             local cfg = special.mod.config
             for _, field in ipairs(schema) do
-                local stored = kv[special.modName .. "." .. KeyStr(field.configKey)]
-                if stored ~= nil then
-                    lib.writePath(cfg, field.configKey, DecodeValue(field, stored))
+                local storedField = kv[special.modName .. "." .. KeyStr(field.configKey)]
+                if storedField ~= nil then
+                    lib.writePath(cfg, field.configKey, DecodeValue(field, storedField))
                 else
                     lib.writePath(cfg, field.configKey, field.default)
                 end

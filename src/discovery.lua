@@ -58,11 +58,12 @@ function Discovery.run()
                     lib.validateSchema(def.stateSchema, modName)
                 end
                 table.insert(Discovery.specials, {
-                    modName     = modName,
-                    mod         = mod,
-                    definition  = def,
-                    stateSchema = def.stateSchema,
+                    modName      = modName,
+                    mod          = mod,
+                    definition   = def,
+                    stateSchema  = def.stateSchema,
                     _enableLabel = "Enable " .. tostring(def.name),
+                    _debugLabel  = tostring(def.name) .. "##" .. modName,
                 })
             end
         else
@@ -71,25 +72,35 @@ function Discovery.run()
             else
                 local cat = def.category or "General"
                 local module = {
-                    modName    = modName,
-                    mod        = mod,
-                    definition = def,
-                    id         = def.id,
-                    name       = def.name,
-                    category   = cat,
-                    group      = def.group or "General",
-                    tooltip    = def.tooltip or "",
-                    default    = def.default,
-                    options    = def.options,
+                    modName      = modName,
+                    mod          = mod,
+                    definition   = def,
+                    id           = def.id,
+                    name         = def.name,
+                    category     = cat,
+                    group        = def.group or "General",
+                    tooltip      = def.tooltip or "",
+                    default      = def.default,
+                    options      = def.options,
+                    _debugLabel  = (def.name or def.id) .. "##" .. def.id,
                 }
 
                 table.insert(Discovery.modules, module)
                 Discovery.modulesById[def.id] = module
                 if def.options and #def.options > 0 then
-                    table.insert(Discovery.modulesWithOptions, module)
                     lib.validateSchema(def.options, modName)
+                    local validOptions = {}
                     for _, opt in ipairs(def.options) do
-                        opt._pushId = def.id .. "_" .. tostring(opt.configKey)
+                        if type(opt.configKey) == "table" then
+                            lib.warn(modName .. ": option configKey is a table -- table-path keys are only valid in stateSchema (special modules). Use a flat string key in def.options. Option skipped.")
+                        else
+                            opt._pushId = def.id .. "_" .. tostring(opt.configKey)
+                            table.insert(validOptions, opt)
+                        end
+                    end
+                    module.options = validOptions
+                    if #validOptions > 0 then
+                        table.insert(Discovery.modulesWithOptions, module)
                     end
                 end
 
@@ -101,6 +112,24 @@ function Discovery.run()
                 Discovery.byCategory[cat] = Discovery.byCategory[cat] or {}
                 table.insert(Discovery.byCategory[cat], module)
             end
+        end
+    end
+
+    -- Resolve tab labels for all specials; suffix duplicates as (1), (2), ... and warn
+    local labelCount = {}
+    for _, special in ipairs(Discovery.specials) do
+        local label = special.definition.tabLabel or special.definition.name
+        labelCount[label] = (labelCount[label] or 0) + 1
+    end
+    local labelIndex = {}
+    for _, special in ipairs(Discovery.specials) do
+        local label = special.definition.tabLabel or special.definition.name
+        if labelCount[label] > 1 then
+            labelIndex[label] = (labelIndex[label] or 0) + 1
+            special._tabLabel = label .. " (" .. labelIndex[label] .. ")"
+            lib.warn(special.modName .. ": tabLabel '" .. label .. "' is shared by multiple specials. Rename tabLabel or definition.name to resolve. Rendering as '" .. special._tabLabel .. "'.")
+        else
+            special._tabLabel = label
         end
     end
 
@@ -187,6 +216,16 @@ function Discovery.setSpecialEnabled(special, enabled)
     if not ok then
         lib.warn(special.modName .. " " .. (enabled and "enable" or "disable") .. " failed: " .. tostring(err))
     end
+end
+
+--- Read a module or special's DebugMode state from its config.
+function Discovery.isDebugEnabled(entry)
+    return entry.mod.config.DebugMode == true
+end
+
+--- Write a module or special's DebugMode state to its config.
+function Discovery.setDebugEnabled(entry, val)
+    entry.mod.config.DebugMode = val
 end
 
 Core.Discovery = Discovery

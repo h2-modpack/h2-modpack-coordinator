@@ -55,7 +55,6 @@ local SIDEBAR_RATIO = 0.2    -- sidebar takes 20% of window
 local FIELD_MEDIUM  = 0.5    -- combos, hash inputs
 local FIELD_NARROW  = 0.3    -- short inputs (name, slot selector)
 local FIELD_WIDE    = 0.85   -- long text (tooltip)
-local LABEL_OFFSET  = 0.25   -- hammer label alignment
 
 -- =============================================================================
 -- THEME HELPERS
@@ -113,7 +112,6 @@ Core.Theme = {
     FIELD_MEDIUM      = FIELD_MEDIUM,
     FIELD_NARROW      = FIELD_NARROW,
     FIELD_WIDE        = FIELD_WIDE,
-    LABEL_OFFSET      = LABEL_OFFSET,
     DrawColoredText   = DrawColoredText,
     PushTextColor     = PushTextColor,
     PushTheme         = PushTheme,

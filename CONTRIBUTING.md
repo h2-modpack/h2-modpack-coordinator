@@ -63,6 +63,17 @@ Key handlers:
 | `LoadProfile(hash)` | Apply a hash string to all modules |
 | `SetBugFixes(val)` | Bulk toggle all bug fix modules |
 
+### Dev tab (ui.lua — `DrawDev`)
+
+Two independent debug controls:
+
+| Control | What it gates | Who controls it |
+|---|---|---|
+| Framework Debug | `lib.warn(msg)` calls — schema errors, discovery warnings, unknown field types | `lib.config.DebugMode` |
+| Per-module Debug | `lib.log(name, config.DebugMode, msg)` calls in each module's own code | Each module's `config.DebugMode` |
+
+Core's Dev tab writes `lib.config.DebugMode` for the framework toggle, and writes each module/special's `config.DebugMode` via `Discovery.setDebugEnabled(entry, val)` for per-module toggles. The two flags are independent — enabling framework debug does not enable module debug and vice versa.
+
 ### Theme (ui_theme.lua)
 
 Declarative colors and layout constants. Colors are defined as a data-driven table so push/pop stay in sync automatically.
@@ -84,6 +95,9 @@ Set `def.category` to a new string in the module's `public.definition`. The tab 
 ## Guidelines
 
 - **Never rename `def.id` or `field.configKey` after release** — these are hash keys; renaming silently resets that field to default for anyone with an existing profile
-- All module apply/revert calls go through pcall — log via `lib.warn`, never crash
+- **`"Bug Fixes"` is a reserved category string** — modules using this exact string get a bulk enable/disable toggle in the Quick Setup tab automatically. Spelling variations (`"Bugfixes"`, `"Bug Fix"`) create a separate tab and do not get the bulk toggle
+- All module apply/revert calls go through pcall — use `lib.warn` for framework errors, never crash
 - UI reads from staging, not Chalk — always keep staging in sync
 - Theme is data-driven — don't hardcode counts or layout numbers
+- **`def.options` configKeys must be flat strings** — table-path keys (e.g. `{"Parent", "Child"}`) are only valid in `def.stateSchema` (special modules). `getOptionValue`/`setOptionValue` use raw table indexing; a table key creates a garbage entry under a unique reference, silently failing to read or write. Discovery warns and skips any option with a table configKey. If your config needs nested structure, the module should be a special module with its own staging.
+

@@ -26,7 +26,6 @@ public.config = config
 -- Shared namespace for cross-file communication within this plugin.
 -- All imported files attach to Core and read from Core.Discovery.
 Core = {}
--- local lib = rom.mods['adamant-Modpack_Lib']
 
 -- =============================================================================
 -- LIFECYCLE
@@ -35,7 +34,6 @@ Core = {}
 local function import_modules()
     import_as_fallback(rom.game)
     import 'def.lua'
-    import 'discovery_registry.lua'
     import 'discovery.lua'
     import 'hash.lua'
     import 'ui_theme.lua'
@@ -53,6 +51,9 @@ end
 
 local function on_reload()
     import_modules()
+    if config.ModEnabled then
+        Core.SetModMarker(true)
+    end
 end
 
 local loader = reload.auto_single()

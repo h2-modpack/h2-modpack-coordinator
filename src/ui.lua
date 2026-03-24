@@ -29,6 +29,7 @@ local staging = {
     modules    = {},  -- [module.id] = bool
     options    = {},  -- [module.id] = { [configKey] = value }
     specials   = {},  -- [special.modName] = bool (enabled state)
+    debug      = {},  -- [module.id or special.modName] = bool (DebugMode per entry)
 }
 
 -- Profile staging: plain copies of config.Profiles
@@ -54,9 +55,15 @@ local function SnapshotToStaging()
     -- Special modules
     for _, special in ipairs(Discovery.specials) do
         staging.specials[special.modName] = Discovery.isSpecialEnabled(special)
+        staging.debug[special.modName] = Discovery.isDebugEnabled(special)
         if special.mod.SnapshotStaging then
             special.mod.SnapshotStaging()
         end
+    end
+
+    -- Per-module debug states
+    for _, m in ipairs(Discovery.modules) do
+        staging.debug[m.id] = Discovery.isDebugEnabled(m)
     end
 
     -- Profiles
@@ -240,11 +247,7 @@ local defaultProfiles = Def.defaultProfiles
 -- GENERIC TAB CONTENT RENDERER
 -- =============================================================================
 
-local function DrawCheckboxGroup(layoutData, category)
-    local modules = Discovery.byCategory[category] or {}
-    local moduleMap = {}
-    for _, m in ipairs(modules) do moduleMap[m.id] = m end
-
+local function DrawCheckboxGroup(layoutData)
     for _, group in ipairs(layoutData) do
         PushTextColor(colors.info)
         local collapsingHeader = ui.CollapsingHeader(group.Header, ImGuiTreeNodeFlags.DefaultOpen)
@@ -252,7 +255,7 @@ local function DrawCheckboxGroup(layoutData, category)
         if collapsingHeader then
             ui.Indent()
             for _, itemData in ipairs(group.Items) do
-                local m = moduleMap[itemData.Key]
+                local m = Discovery.modulesById[itemData.Key]
                 if m then
                     -- Read from staging, not Chalk
                     local currentVal = staging.modules[m.id] or false
@@ -303,8 +306,7 @@ local function BuildTabList()
     cachedTabList = { "Quick Setup" }
     -- Special module tabs
     for _, special in ipairs(Discovery.specials) do
-        local label = special.definition.tabLabel or special.definition.name
-        table.insert(cachedTabList, label)
+        table.insert(cachedTabList, special._tabLabel)
     end
     -- Category tabs
     for _, cat in ipairs(Discovery.categories) do
@@ -319,9 +321,7 @@ end
 local specialByTabLabel = {}
 
 for _, special in ipairs(Discovery.specials) do
-    local label = special.definition.tabLabel or special.definition.name
-    specialByTabLabel[label] = special
-    
+    specialByTabLabel[special._tabLabel] = special
     -- Cache the onChanged callback so we don't allocate closures in the render loop
     special._onChangedCb = function()
         if special.mod.SyncToConfig then
@@ -432,9 +432,7 @@ local function DrawProfiles()
     local winW = ui.GetWindowWidth()
 
     -- Export / Import
-    PushTextColor(colors.info)
-    ui.CollapsingHeader("Export / Import", ImGuiTreeNodeFlags.DefaultOpen)
-    ui.PopStyleColor()
+    DrawColoredText(colors.info, "Export / Import")
     ui.Indent()
 
     -- Read cached hash (computed from staging, not Chalk)
@@ -483,9 +481,7 @@ local function DrawProfiles()
     ui.Spacing()
 
     -- Profile Slot Selector
-    PushTextColor(colors.info)
-    ui.CollapsingHeader("Saved Profiles", ImGuiTreeNodeFlags.DefaultOpen)
-    ui.PopStyleColor()
+    DrawColoredText(colors.info, "Saved Profiles")
     ui.Indent()
 
     if slotLabelsDirty then RebuildSlotLabels() end
@@ -602,12 +598,37 @@ local function DrawDev()
     DrawColoredText(colors.info, "Developer options for module authors and debugging.")
     ui.Spacing()
 
-    local val, chg = ui.Checkbox("Debug Mode", config.DebugMode == true)
-    if chg then
-        config.DebugMode = val
+    -- Framework debug: gates lib.warn calls from schema validation, discovery, etc.
+    local fwVal, fwChg = ui.Checkbox("Framework Debug", lib.config.DebugMode == true)
+    if fwChg then
+        lib.config.DebugMode = fwVal
     end
     if ui.IsItemHovered() then
-        ui.SetTooltip("Enables diagnostic warnings in the console for schema validation, missing fields, and module errors.")
+        ui.SetTooltip("Print diagnostic warnings for schema validation, discovery errors, and other framework events.")
+    end
+
+    ui.Spacing()
+    ui.Separator()
+    ui.Spacing()
+    DrawColoredText(colors.info, "Per-Module Debug")
+    ui.Spacing()
+
+    -- Regular modules
+    for _, m in ipairs(Discovery.modules) do
+        local val, chg = ui.Checkbox(m._debugLabel, staging.debug[m.id])
+        if chg then
+            staging.debug[m.id] = val
+            Discovery.setDebugEnabled(m, val)
+        end
+    end
+
+    -- Special modules
+    for _, special in ipairs(Discovery.specials) do
+        local val, chg = ui.Checkbox(special._debugLabel, staging.debug[special.modName])
+        if chg then
+            staging.debug[special.modName] = val
+            Discovery.setDebugEnabled(special, val)
+        end
     end
 end
 
@@ -685,7 +706,7 @@ local function DrawMainWindow()
         -- Dynamic category tab
         local catKey = categoryKeyByLabel[selectedTab]
         if catKey and Discovery.categoryLayouts[catKey] then
-            DrawCheckboxGroup(Discovery.categoryLayouts[catKey], catKey)
+            DrawCheckboxGroup(Discovery.categoryLayouts[catKey])
         end
     end
 
